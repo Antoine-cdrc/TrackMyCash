@@ -1,0 +1,7 @@
+{
+  "name": "TrackMyCash",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "react-vite"
+}
