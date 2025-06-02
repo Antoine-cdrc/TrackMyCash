@@ -1,6 +1,9 @@
-import { IonContent, IonHeader, IonPage, IonTitle, IonToolbar, IonCard, IonCardHeader, IonCardTitle, IonCardContent, IonList, IonItem, IonLabel, useIonToast } from '@ionic/react';
+import { IonContent, IonHeader, IonPage, IonTitle, IonToolbar, IonCard, IonCardHeader, IonCardTitle, IonCardContent, IonList, IonItem, IonLabel, useIonToast, IonSegment, IonSegmentButton } from '@ionic/react';
 import { useState, useEffect } from 'react';
 import { databaseService } from '../services/DatabaseService';
+import ExpenseChart from '../components/ExpenseChart';
+import ExpenseTimeChart from '../components/ExpenseTimeChart';
+import { expenseUpdated } from '../services/EventService';
 
 interface CategoryTotal {
   category: string;
@@ -10,6 +13,7 @@ interface CategoryTotal {
 const ExpenseStats: React.FC = () => {
   const [categoryTotals, setCategoryTotals] = useState<CategoryTotal[]>([]);
   const [totalExpenses, setTotalExpenses] = useState<number>(0);
+  const [viewMode, setViewMode] = useState<'list' | 'chart' | 'time'>('list');
   const [present] = useIonToast();
 
   const loadStats = async () => {
@@ -33,6 +37,13 @@ const ExpenseStats: React.FC = () => {
 
   useEffect(() => {
     loadStats();
+    const subscription = expenseUpdated.subscribe(() => {
+      loadStats();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   return (
@@ -52,18 +63,35 @@ const ExpenseStats: React.FC = () => {
           </IonCardContent>
         </IonCard>
 
-        <IonList>
-          {categoryTotals.map((category) => (
-            <IonItem key={category.category}>
-              <IonLabel>
-                <h2>{category.category}</h2>
-              </IonLabel>
-              <IonLabel slot="end">
-                {category.total.toFixed(2)} €
-              </IonLabel>
-            </IonItem>
-          ))}
-        </IonList>
+        <IonSegment value={viewMode} onIonChange={e => setViewMode(e.detail.value as 'list' | 'chart' | 'time')}>
+          <IonSegmentButton value="list">
+            <IonLabel>Liste</IonLabel>
+          </IonSegmentButton>
+          <IonSegmentButton value="chart">
+            <IonLabel>Répartition</IonLabel>
+          </IonSegmentButton>
+          <IonSegmentButton value="time">
+            <IonLabel>Évolution</IonLabel>
+          </IonSegmentButton>
+        </IonSegment>
+
+        {viewMode === 'list' && (
+          <IonList>
+            {categoryTotals.map((category) => (
+              <IonItem key={category.category}>
+                <IonLabel>
+                  <h2>{category.category}</h2>
+                </IonLabel>
+                <IonLabel slot="end">
+                  {category.total.toFixed(2)} €
+                </IonLabel>
+              </IonItem>
+            ))}
+          </IonList>
+        )}
+
+        {viewMode === 'chart' && <ExpenseChart />}
+        {viewMode === 'time' && <ExpenseTimeChart />}
       </IonContent>
     </IonPage>
   );

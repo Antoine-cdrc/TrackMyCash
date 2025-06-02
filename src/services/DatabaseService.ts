@@ -1,4 +1,6 @@
 import { CapacitorSQLite, SQLiteConnection, SQLiteDBConnection } from '@capacitor-community/sqlite';
+import { isPlatform } from '@ionic/react';
+import { notifyExpenseUpdate } from './EventService';
 
 export interface Expense {
   id?: number;
@@ -11,98 +13,122 @@ export interface Expense {
 class DatabaseService {
   private sqlite: SQLiteConnection;
   private db: SQLiteDBConnection | null = null;
-  private dbName = 'expenses.db';
+  private initialized = false;
 
   constructor() {
     this.sqlite = new SQLiteConnection(CapacitorSQLite);
   }
 
   async initialize() {
-    try {
-      this.db = await this.sqlite.createConnection(
-        this.dbName,
-        false,
-        'no-encryption',
-        1,
-        false
-      );
+    if (this.initialized) return;
 
-      await this.db.open();
-
-      // Création de la table des dépenses
-      const schema = `
-        CREATE TABLE IF NOT EXISTS expenses (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          amount REAL NOT NULL,
-          category TEXT NOT NULL,
-          date TEXT NOT NULL
+    if (isPlatform('hybrid')) {
+      try {
+        const db = await this.sqlite.createConnection(
+          'expenses',
+          false,
+          'no-encryption',
+          1,
+          false
         );
-      `;
 
-      await this.db.execute(schema);
-      console.log('Base de données initialisée avec succès');
-    } catch (error) {
-      console.error('Erreur lors de l\'initialisation de la base de données:', error);
-      throw error;
+        await db.open();
+        this.db = db;
+
+        const schema = `
+          CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            date TEXT NOT NULL
+          );
+        `;
+
+        await db.execute(schema);
+        this.initialized = true;
+      } catch (error) {
+        console.error('Erreur lors de l\'initialisation de la base de données:', error);
+        throw error;
+      }
     }
   }
 
   async addExpense(expense: Expense): Promise<number> {
+    await this.initialize();
     if (!this.db) throw new Error('Base de données non initialisée');
 
-    const query = `
-      INSERT INTO expenses (name, amount, category, date)
-      VALUES (?, ?, ?, ?)
-    `;
+    try {
+      const result = await this.db.run(
+        'INSERT INTO expenses (name, amount, category, date) VALUES (?, ?, ?, ?)',
+        [expense.name, expense.amount, expense.category, expense.date]
+      );
 
-    const result = await this.db.run(query, [
-      expense.name,
-      expense.amount,
-      expense.category,
-      expense.date
-    ]);
-
-
-    const lastIdQuery = 'SELECT last_insert_rowid() as id';
-    const lastIdResult = await this.db.query(lastIdQuery);
-    return lastIdResult.values?.[0]?.id || 0;
+      if (result.changes?.changes && result.changes.changes > 0) {
+        notifyExpenseUpdate();
+        // Récupérer l'ID de la dernière insertion
+        const lastIdResult = await this.db.query('SELECT last_insert_rowid() as id');
+        return lastIdResult.values?.[0]?.id || 0;
+      }
+      throw new Error('Erreur lors de l\'ajout de la dépense');
+    } catch (error) {
+      console.error('Erreur lors de l\'ajout de la dépense:', error);
+      throw error;
+    }
   }
 
   async getExpenses(): Promise<Expense[]> {
+    await this.initialize();
     if (!this.db) throw new Error('Base de données non initialisée');
 
-    const query = 'SELECT * FROM expenses ORDER BY date DESC';
-    const result = await this.db.query(query);
-    return result.values || [];
-  }
-
-  async getExpensesByCategory(): Promise<{ category: string; total: number }[]> {
-    if (!this.db) throw new Error('Base de données non initialisée');
-
-    const query = `
-      SELECT category, SUM(amount) as total
-      FROM expenses
-      GROUP BY category
-    `;
-
-    const result = await this.db.query(query);
-    return result.values || [];
-  }
-
-  async getTotalExpenses(): Promise<number> {
-    if (!this.db) throw new Error('Base de données non initialisée');
-
-    const query = 'SELECT SUM(amount) as total FROM expenses';
-    const result = await this.db.query(query);
-    return result.values?.[0]?.total || 0;
+    try {
+      const result = await this.db.query('SELECT * FROM expenses ORDER BY date DESC');
+      return result.values || [];
+    } catch (error) {
+      console.error('Erreur lors de la récupération des dépenses:', error);
+      throw error;
+    }
   }
 
   async deleteExpense(id: number): Promise<void> {
+    await this.initialize();
     if (!this.db) throw new Error('Base de données non initialisée');
 
-    const query = 'DELETE FROM expenses WHERE id = ?';
-    await this.db.run(query, [id]);
+    try {
+      await this.db.run('DELETE FROM expenses WHERE id = ?', [id]);
+      notifyExpenseUpdate();
+    } catch (error) {
+      console.error('Erreur lors de la suppression de la dépense:', error);
+      throw error;
+    }
+  }
+
+  async getExpensesByCategory(): Promise<{ category: string; total: number }[]> {
+    await this.initialize();
+    if (!this.db) throw new Error('Base de données non initialisée');
+
+    try {
+      const result = await this.db.query(
+        'SELECT category, SUM(amount) as total FROM expenses GROUP BY category'
+      );
+      return result.values || [];
+    } catch (error) {
+      console.error('Erreur lors de la récupération des dépenses par catégorie:', error);
+      throw error;
+    }
+  }
+
+  async getTotalExpenses(): Promise<number> {
+    await this.initialize();
+    if (!this.db) throw new Error('Base de données non initialisée');
+
+    try {
+      const result = await this.db.query('SELECT SUM(amount) as total FROM expenses');
+      return result.values?.[0]?.total || 0;
+    } catch (error) {
+      console.error('Erreur lors de la récupération du total des dépenses:', error);
+      throw error;
+    }
   }
 }
 
